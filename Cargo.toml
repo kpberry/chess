@@ -1,0 +1,7 @@
+[package]
+name = "chess"
+version = "0.1.0"
+authors = ["Kevin Berry <kpberry11@gmail.com>"]
+
+[dependencies]
+rand = "0.4.0"
