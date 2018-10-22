@@ -152,15 +152,15 @@ impl Board {
         self.tiles[0][7] = Piece::Rook(Color::Light);
         self.tiles[7][7] = Piece::Rook(Color::Light);
 
-        // self.tiles[1][0] = Piece::Knight(Color::Dark);
-        // self.tiles[6][0] = Piece::Knight(Color::Dark);
-        // self.tiles[1][7] = Piece::Knight(Color::Light);
-        // self.tiles[6][7] = Piece::Knight(Color::Light);
+        self.tiles[1][0] = Piece::Knight(Color::Dark);
+        self.tiles[6][0] = Piece::Knight(Color::Dark);
+        self.tiles[1][7] = Piece::Knight(Color::Light);
+        self.tiles[6][7] = Piece::Knight(Color::Light);
 
-        // self.tiles[2][0] = Piece::Bishop(Color::Dark);
-        // self.tiles[5][0] = Piece::Bishop(Color::Dark);
-        // self.tiles[2][7] = Piece::Bishop(Color::Light);
-        // self.tiles[5][7] = Piece::Bishop(Color::Light);
+        self.tiles[2][0] = Piece::Bishop(Color::Dark);
+        self.tiles[5][0] = Piece::Bishop(Color::Dark);
+        self.tiles[2][7] = Piece::Bishop(Color::Light);
+        self.tiles[5][7] = Piece::Bishop(Color::Light);
 
         self.tiles[4][0] = Piece::King(Color::Dark);
         self.tiles[4][7] = Piece::King(Color::Light);
@@ -393,7 +393,7 @@ impl Board {
                     .filter(|pos| !self.is_endangered(side, *pos))
                     .collect();
                 if safe.len() == 5 {
-                    offsets.push((-3, 0));
+                    offsets.push((-2, 0));
                 }
             }
         }
@@ -541,34 +541,6 @@ impl Board {
     fn play(&mut self) {
         let mut side = Color::Light;
         loop {
-            // println!("Valid Dark moves:");
-            // for i in 0..8 {
-            //     for j in 0..8 {
-            //         if self.tiles[i][j].same_color(&Color::Dark) {
-            //             println!(
-            //                 "({}, {}): {:?}",
-            //                 i,
-            //                 j,
-            //                 self.get_valid_moves((i as i8, j as i8), side, true, true)
-            //             )
-            //         }
-            //     }
-            // }
-
-            // println!("Valid Light moves:");
-            // for i in 0..8 {
-            //     for j in 0..8 {
-            //         if self.tiles[i][j].same_color(&Color::Light) {
-            //             println!(
-            //                 "({}, {}): {:?}",
-            //                 i,
-            //                 j,
-            //                 self.get_valid_moves((i as i8, j as i8), side, true, true)
-            //             )
-            //         }
-            //     }
-            // }
-
             self.print(side);
             println!("Enter a move:");
 
