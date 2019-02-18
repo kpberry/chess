@@ -482,9 +482,6 @@ impl Board {
             if self.en_passant(end, &color) {
                 self.tiles[end_x][start_y] = Piece::Empty;
             }
-            if end_y == 7 || end_y == 0 {
-                self.tiles[end_x][end_y] = Piece::Queen(color);
-            }
         }
         if let Piece::King(color) = self.tiles[start_x][start_y] {
             if end.0 - start.0 > 1 {
