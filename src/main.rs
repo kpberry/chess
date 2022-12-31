@@ -1,7 +1,5 @@
 use std::io;
 
-mod chess;
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Color {
     White,
