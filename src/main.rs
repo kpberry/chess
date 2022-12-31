@@ -1,466 +1,403 @@
 use std::io;
-use std::mem;
+
+mod chess;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Color {
-    Light,
-    Dark,
+    White,
+    Black,
 }
 
 impl Color {
     fn other(&self) -> Color {
         match self {
-            Color::Light => Color::Dark,
-            Color::Dark => Color::Light,
+            Color::White => Color::Black,
+            Color::Black => Color::White,
         }
     }
 
-    fn dir(&self) -> i8 {
+    fn forward(&self) -> i8 {
         match self {
-            Color::Light => -1,
-            Color::Dark => 1,
+            Color::White => 1,
+            Color::Black => -1,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Piece {
-    Pawn(Color),
-    Knight(Color),
-    Bishop(Color),
-    Rook(Color),
-    Queen(Color),
-    King(Color),
-    Empty,
+#[derive(Clone, PartialEq, Debug)]
+enum PieceKind {
+    Pawn,
+    Knight,
+    Bishop,
+    Rook,
+    Queen,
+    King,
+}
+
+impl PieceKind {
+    fn icon(&self, color: &Color) -> String {
+        String::from(match self {
+            PieceKind::Pawn => match color {
+                Color::White => "♙",
+                Color::Black => "♟",
+            },
+            PieceKind::Knight => match color {
+                Color::White => "♘",
+                Color::Black => "♞",
+            },
+            PieceKind::Bishop => match color {
+                Color::White => "♗",
+                Color::Black => "♝",
+            },
+            PieceKind::Rook => match color {
+                Color::White => "♖",
+                Color::Black => "♜",
+            },
+            PieceKind::Queen => match color {
+                Color::White => "♕",
+                Color::Black => "♛",
+            },
+            PieceKind::King => match color {
+                Color::White => "♔",
+                Color::Black => "♚",
+            },
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Piece {
+    kind: PieceKind,
+    color: Color,
+    has_moved: bool,
 }
 
 impl Piece {
-    fn get_icon(&self) -> &str {
-        match self {
-            Piece::Pawn(color) => match color {
-                Color::Light => "♙",
-                Color::Dark => "♟",
-            },
-            Piece::Knight(color) => match color {
-                Color::Light => "♘",
-                Color::Dark => "♞",
-            },
-            Piece::Bishop(color) => match color {
-                Color::Light => "♗",
-                Color::Dark => "♝",
-            },
-            Piece::Rook(color) => match color {
-                Color::Light => "♖",
-                Color::Dark => "♜",
-            },
-            Piece::Queen(color) => match color {
-                Color::Light => "♕",
-                Color::Dark => "♛",
-            },
-            Piece::King(color) => match color {
-                Color::Light => "♔",
-                Color::Dark => "♚",
-            },
-            Piece::Empty => " ",
-        }
+    fn icon(&self) -> String {
+        self.kind.icon(&self.color)
     }
 
-    fn same_color(&self, color: &Color) -> bool {
-        match self {
-            Piece::Pawn(c)
-            | Piece::Knight(c)
-            | Piece::Bishop(c)
-            | Piece::Rook(c)
-            | Piece::Queen(c)
-            | Piece::King(c) => c == color,
-            _ => false,
+    fn new(kind: PieceKind, color: Color, has_moved: bool) -> Piece {
+        Piece {
+            kind,
+            color,
+            has_moved,
         }
-    }
-
-    fn other_color(&self, color: &Color) -> bool {
-        return !self.same_color(color);
     }
 }
 
+#[derive(Clone, PartialEq, Debug)]
+struct Coord {
+    row: i8,
+    col: i8,
+}
+
+impl Coord {
+    fn offset(&self, other: &Coord) -> Coord {
+        Coord {
+            row: self.row + other.row,
+            col: self.col + other.col,
+        }
+    }
+}
+
+#[derive(Clone)]
 struct Board {
-    tiles: [[Piece; 8]; 8],
-    history: Vec<((i8, i8), (i8, i8))>,
+    tiles: Vec<Vec<Option<Piece>>>,
+    history: Vec<(Coord, Coord)>,
 }
 
 impl Board {
     fn print(&self, side: Color) {
-        match side {
-            Color::Light => {
-                for i in 0..8 {
-                    print!("{} | ", 8 - i);
-                    for j in 0..8 {
-                        print!(" {} ", self.tiles[j][i].get_icon());
-                    }
-                    print!("\n");
-                }
-                print!("   ");
-                for i in 0..8 {
-                    print!("  {}", (('a' as u8) + i) as char);
-                }
-                println!();
-            }
-            Color::Dark => {
-                for i in (0..8).rev() {
-                    print!("{} | ", 8 - i);
-                    for j in (0..8).rev() {
-                        print!(" {} ", self.tiles[j][i].get_icon());
-                    }
-                    print!("\n");
-                }
-                print!("   ");
-                for i in (0..8).rev() {
-                    print!("  {}", (('a' as u8) + i) as char);
-                }
-                println!();
-            }
+        let order: Vec<i8> = match side {
+            Color::White => (0..8).rev().collect(),
+            Color::Black => (0..8).collect(),
         };
+
+        for row in order.iter() {
+            print!("{} | ", row + 1);
+            for col in order.iter().rev() {
+                let piece = self.get(&Coord {
+                    row: *row,
+                    col: *col,
+                });
+                let icon = piece.map_or(String::from(" "), |piece| piece.icon());
+                print!(" {} ", icon);
+            }
+            print!("\n");
+        }
+        print!("   ");
+        for i in order.iter().rev() {
+            print!("  {}", ('a' as u8 + *i as u8) as char);
+        }
+        println!();
     }
 
     fn new() -> Board {
-        let mut board = unsafe {
-            let mut _board = Board {
-                tiles: mem::uninitialized(),
-                history: vec![],
-            };
-            for x in 0..8 {
-                for y in 0..8 {
-                    _board.tiles[x][y] = Piece::Empty;
-                }
-            }
-            _board
+        Board::from_pieces(Board::default_pieces())
+    }
+
+    fn from_pieces(pieces: Vec<(Coord, Piece)>) -> Board {
+        let mut tiles: Vec<Vec<Option<Piece>>> =
+            (0..8).map(|_| (0..8).map(|_| None).collect()).collect();
+        for (pos, piece) in pieces {
+            tiles[pos.row as usize][pos.col as usize] = Some(piece);
+        }
+        let board = Board {
+            tiles,
+            history: Vec::new(),
         };
-
-        board.reset_pieces();
-
         board
     }
 
-    fn reset_pieces(&mut self) {
-        for x in 0..8 {
-            for y in 0..8 {
-                self.tiles[x][y] = Piece::Empty;
-            }
-        }
-
-        self.tiles[0][0] = Piece::Rook(Color::Dark);
-        self.tiles[7][0] = Piece::Rook(Color::Dark);
-        self.tiles[0][7] = Piece::Rook(Color::Light);
-        self.tiles[7][7] = Piece::Rook(Color::Light);
-
-        self.tiles[1][0] = Piece::Knight(Color::Dark);
-        self.tiles[6][0] = Piece::Knight(Color::Dark);
-        self.tiles[1][7] = Piece::Knight(Color::Light);
-        self.tiles[6][7] = Piece::Knight(Color::Light);
-
-        self.tiles[2][0] = Piece::Bishop(Color::Dark);
-        self.tiles[5][0] = Piece::Bishop(Color::Dark);
-        self.tiles[2][7] = Piece::Bishop(Color::Light);
-        self.tiles[5][7] = Piece::Bishop(Color::Light);
-
-        self.tiles[4][0] = Piece::King(Color::Dark);
-        self.tiles[4][7] = Piece::King(Color::Light);
-
-        self.tiles[3][0] = Piece::Queen(Color::Dark);
-        self.tiles[3][7] = Piece::Queen(Color::Light);
-
-        for i in 0..8 {
-            self.tiles[i][1] = Piece::Pawn(Color::Dark);
-            self.tiles[i][6] = Piece::Pawn(Color::Light);
-        }
-    }
-
-    fn contains(pos: (i8, i8)) -> bool {
-        let (i, j) = pos;
-        i >= 0 && j >= 0 && i < 8 && j < 8
-    }
-
-    fn offset_within(pos: (i8, i8), offsets: Vec<(i8, i8)>) -> Vec<(i8, i8)> {
-        let (x, y) = pos;
-        offsets
+    fn default_pieces() -> Vec<(Coord, Piece)> {
+        let mut piece_attributes: Vec<(i8, i8, PieceKind, Color)> = vec![
+            (0, 0, PieceKind::Rook, Color::White),
+            (0, 7, PieceKind::Rook, Color::White),
+            (0, 1, PieceKind::Knight, Color::White),
+            (0, 6, PieceKind::Knight, Color::White),
+            (0, 2, PieceKind::Bishop, Color::White),
+            (0, 5, PieceKind::Bishop, Color::White),
+            (0, 4, PieceKind::King, Color::White),
+            (0, 3, PieceKind::Queen, Color::White),
+        ];
+        piece_attributes.extend((0..8).map(|col| (1, col, PieceKind::Pawn, Color::White)));
+        let dark_piece_attributes: Vec<(i8, i8, PieceKind, Color)> = piece_attributes
+            .iter()
+            .map(|(row, col, kind, _)| (7 - *row, *col, kind.clone(), Color::Black))
+            .collect();
+        piece_attributes.extend(dark_piece_attributes);
+        piece_attributes
             .into_iter()
-            .map(|(i, j)| (x + i, y + j))
-            .filter(|&pos| Board::contains(pos))
+            .map(|(row, col, kind, color)| (Coord { row, col }, Piece::new(kind, color, false)))
             .collect()
     }
 
-    fn occupied(&self, pos: (i8, i8)) -> bool {
-        let (x, y) = pos;
-        if let Piece::Empty = self.tiles[x as usize][y as usize] {
-            false
+    fn get(&self, pos: &Coord) -> Option<Piece> {
+        self.tiles
+            .get(pos.row as usize)?
+            .get(pos.col as usize)?
+            .clone()
+    }
+
+    fn set(&mut self, pos: &Coord, piece: Option<Piece>) {
+        self.tiles[pos.row as usize][pos.col as usize] = piece;
+    }
+
+    fn contains(&self, pos: &Coord) -> bool {
+        pos.row >= 0 && pos.col >= 0 && pos.row < 8 && pos.col < 8
+    }
+
+    fn path_between(&self, start: &Coord, end: &Coord) -> Vec<Coord> {
+        // TODO could possibly speed up path_is_clear slightly by making this a generator
+        let d_row = (end.row - start.row).signum();
+        let d_col = (end.col - start.col).signum();
+        let d = Coord {
+            row: d_row,
+            col: d_col,
+        };
+
+        let mut pos = start.offset(&d);
+        let mut path = Vec::new();
+        while pos != *end {
+            path.push(pos.clone());
+            pos = pos.offset(&d);
+        }
+        path
+    }
+
+    fn path_is_clear(&self, start: &Coord, end: &Coord) -> bool {
+        self.path_between(start, end)
+            .iter()
+            .all(|pos| self.get(pos).is_none())
+    }
+
+    fn follows_pawn_move_pattern(&self, start_piece: &Piece, start: &Coord, end: &Coord) -> bool {
+        let forward = start_piece.color.forward();
+        if let Some(end_piece) = self.get(end) {
+            end_piece.color != start_piece.color
+                && end.row == start.row + forward
+                && (end.col - start.col).abs() == 1
         } else {
-            true
+            start.col == end.col
+                && (end.row == start.row + forward
+                    || end.row == start.row + forward * 2
+                        && !start_piece.has_moved
+                        && self.path_is_clear(start, end))
         }
     }
 
-    fn path_is_clear(&self, start: (i8, i8), end: (i8, i8)) -> bool {
-        let mut dx = end.0 - start.0;
-        if dx > 1 {
-            dx = 1;
-        }
-        if dx < -1 {
-            dx = -1;
-        }
-        let mut dy = end.1 - start.1;
-        if dy > 1 {
-            dy = 1;
-        }
-        if dy < -1 {
-            dy = -1;
-        }
+    fn is_en_passant(&self, start_piece: &Piece, start: &Coord, end: &Coord) -> bool {
+        let forward = start_piece.color.forward();
 
-        let mut pos = (start.0 + dx, start.1 + dy);
-        while pos != end {
-            if self.occupied(pos) {
-                return false;
+        end.row == start.row + forward
+            && (end.col - start.col).abs() == 1
+            && match self.history.last() {
+                Some((prev_start, prev_end)) => {
+                    end.col == prev_end.col
+                        && prev_start.col == prev_end.col
+                        && prev_end.row == prev_start.row - forward * 2
+                        && match self.get(prev_end) {
+                            Some(prev_piece) => {
+                                prev_piece.kind == PieceKind::Pawn
+                                    && prev_piece.color != start_piece.color
+                            }
+                            None => false,
+                        }
+                }
+                None => false,
             }
-            pos = (pos.0 + dx, pos.1 + dy);
-        }
-        true
     }
 
-    fn has_moved(&self, pos: (i8, i8)) -> bool {
-        for h in &self.history {
-            if h.0 == pos || h.1 == pos {
-                return true;
-            }
-        }
-        false
+    fn follows_knight_move_pattern(&self, start: &Coord, end: &Coord) -> bool {
+        let d_row = (start.row - end.row).abs();
+        let d_col = (start.col - end.col).abs();
+        d_row == 1 && d_col == 2 || d_row == 2 && d_col == 1
     }
 
-    fn en_passant(&self, pos: (i8, i8), color: &Color) -> bool {
-        if self.history.len() == 0 {
-            return false;
-        }
-
-        let dir = color.dir();
-
-        let (start, end) = self.history[self.history.len() - 1];
-        let (_start_x, start_y) = start;
-        let (end_x, end_y) = end;
-        if let Piece::Pawn(_) = self.tiles[end_x as usize][end_y as usize] {
-            start_y == end_y + dir * 2 && pos == (end_x, end_y + dir)
-        } else {
-            false
-        }
+    fn follows_bishop_move_pattern(&self, start: &Coord, end: &Coord) -> bool {
+        ((end.row - start.row).abs() == (end.col - start.col).abs())
+            && self.path_is_clear(start, end)
     }
 
-    fn is_endangered(&self, side: &Color, pos: (i8, i8)) -> bool {
-        let other = side.other();
-        for i in 0..8 {
-            for j in 0..8 {
-                if self.tiles[i][j].other_color(side)
-                    && self.is_valid_move((i as i8, j as i8), pos, other, false, false)
-                {
+    fn follows_rook_move_pattern(&self, start: &Coord, end: &Coord) -> bool {
+        ((end.row - start.row == 0) || (end.col - start.col == 0)) && self.path_is_clear(start, end)
+    }
+
+    fn follows_queen_move_pattern(&self, start: &Coord, end: &Coord) -> bool {
+        self.follows_bishop_move_pattern(start, end) || self.follows_rook_move_pattern(start, end)
+    }
+
+    fn follows_king_move_pattern(&self, start: &Coord, end: &Coord) -> bool {
+        let d_row = end.row - start.row;
+        let d_col = end.col - start.col;
+        d_row.abs() <= 1 && d_col.abs() <= 1
+    }
+
+    fn is_endangered(&self, side: &Color, pos: &Coord) -> bool {
+        for row in 0..8 {
+            for col in 0..8 {
+                if self.is_legal_move_no_check(&side.other(), &Coord { row, col }, pos) {
                     return true;
                 }
             }
         }
-
         false
     }
 
-    fn find_king(&self, side: &Color) -> Option<(i8, i8)> {
-        for i in 0..8 {
-            for j in 0..8 {
-                if let Piece::King(c) = self.tiles[i][j] {
-                    if c == *side {
-                        return Some((i as i8, j as i8));
+    fn is_castle(&self, piece: &Piece, start: &Coord, end: &Coord) -> bool {
+        !piece.has_moved && {
+            let d_row = end.row - start.row;
+            let d_col = end.col - start.col;
+
+            if d_row != 0 || d_col.abs() != 2 {
+                return false;
+            }
+
+            let rook_col = if d_col == 2 { 7 } else { 0 };
+            let rook_pos = Coord {
+                row: start.row,
+                col: rook_col,
+            };
+            if self
+                .get(&rook_pos)
+                .map(|rook| rook.has_moved)
+                .unwrap_or(true)
+            {
+                return false;
+            }
+
+            let side = piece.color;
+            !self.is_endangered(&side, start)
+                && !self.is_endangered(&side, &rook_pos)
+                && !self
+                    .path_between(start, end)
+                    .iter()
+                    .any(|pos| self.is_endangered(&side, pos))
+        }
+    }
+
+    fn is_legal_move_no_check(&self, side: &Color, start: &Coord, end: &Coord) -> bool {
+        if !self.contains(end) {
+            return false;
+        }
+
+        let start_piece = match self.get(start) {
+            Some(piece) => piece,
+            None => return false,
+        };
+
+        if start_piece.color != *side {
+            return false;
+        }
+
+        if let Some(end_piece) = self.get(end) {
+            if end_piece.color == start_piece.color {
+                return false;
+            }
+        }
+
+        match start_piece.kind {
+            PieceKind::Pawn => {
+                self.follows_pawn_move_pattern(&start_piece, start, end)
+                    || self.is_en_passant(&start_piece, start, end)
+            }
+            PieceKind::Knight => self.follows_knight_move_pattern(start, end),
+            PieceKind::Bishop => self.follows_bishop_move_pattern(start, end),
+            PieceKind::Rook => self.follows_rook_move_pattern(start, end),
+            PieceKind::Queen => self.follows_queen_move_pattern(start, end),
+            PieceKind::King => {
+                self.follows_king_move_pattern(start, end)
+                    || self.is_castle(&start_piece, start, end)
+            }
+        }
+    }
+
+    fn find_king(&self, side: &Color) -> Coord {
+        // TODO can make this more efficient by saving piece mapping
+        for row in 0..8 {
+            for col in 0..8 {
+                if let Some(piece) = self.get(&Coord { row, col }) {
+                    if piece.kind == PieceKind::King && piece.color == *side {
+                        return Coord { row, col };
                     }
                 }
             }
         }
-        None
+        panic!("Could not find king on board")
     }
 
     fn king_is_in_check(&self, side: &Color) -> bool {
         let king_pos = self.find_king(side);
-        match king_pos {
-            Some(pos) => self.is_endangered(side, pos),
-            None => false,
+        self.is_endangered(&side, &king_pos)
+    }
+
+    fn is_legal_move(&self, side: &Color, start: &Coord, end: &Coord) -> bool {
+        self.is_legal_move_no_check(side, start, end) && {
+            let mut check_board = self.clone();
+            check_board.make_move(start, end);
+            !check_board.king_is_in_check(side)
         }
     }
 
-    fn king_is_in_check_after_move(&self, side: &Color, start: (i8, i8), end: (i8, i8)) -> bool {
-        let mut board = Board::new();
-        board.make_moves(&self.history);
-        board.make_move(start, end);
-        board.king_is_in_check(side)
-    }
-
-    fn get_pawn_moves(&self, pos: (i8, i8), color: &Color) -> Vec<(i8, i8)> {
-        let dir = color.dir();
-
-        let mut offsets = vec![(0, dir)];
-
-        let occupied_offsets = vec![(-1, dir), (1, dir)];
-        let (x, y) = pos;
-        for offset in occupied_offsets {
-            let (i, j) = offset;
-            let new_pos = (x + i, y + j);
-            if Board::contains(new_pos) {
-                if self.occupied(new_pos) || self.en_passant(new_pos, color) {
-                    offsets.push(offset);
+    fn get_legal_moves(&self, side: &Color, start: &Coord) -> Vec<Coord> {
+        // TODO can make this more efficient by only checking pieces' move patterns
+        let mut legal_moves: Vec<Coord> = Vec::new();
+        for row in 0..8 {
+            for col in 0..8 {
+                let end = Coord { row, col };
+                if self.is_legal_move(side, start, &end) {
+                    legal_moves.push(end);
                 }
             }
         }
-
-        let first_turn_offset = (0, 2 * dir);
-        let first_turn = match color {
-            Color::Light => y == 6,
-            Color::Dark => y == 1,
-        };
-        if first_turn {
-            if !self.occupied((pos.0, pos.1 + first_turn_offset.1)) {
-                offsets.push(first_turn_offset);
-            }
-        }
-
-        Board::offset_within(pos, offsets)
+        legal_moves
     }
 
-    fn get_knight_moves(&self, pos: (i8, i8)) -> Vec<(i8, i8)> {
-        let offsets: Vec<(i8, i8)> = vec![
-            (-2, -1),
-            (-2, 1),
-            (2, -1),
-            (2, 1),
-            (-1, -2),
-            (-1, 2),
-            (1, -2),
-            (1, 2),
-        ];
-        Board::offset_within(pos, offsets)
-    }
-
-    fn get_bishop_moves(&self, pos: (i8, i8)) -> Vec<(i8, i8)> {
-        let mut offsets: Vec<(i8, i8)> = vec![];
-        for i in -7..=7 {
-            offsets.push((i, i));
-            offsets.push((i, -i));
-        }
-        Board::offset_within(pos, offsets)
-    }
-
-    fn get_rook_moves(&self, pos: (i8, i8)) -> Vec<(i8, i8)> {
-        let mut offsets: Vec<(i8, i8)> = vec![];
-        for i in -7..=7 {
-            offsets.push((i, 0));
-            offsets.push((0, i));
-        }
-        Board::offset_within(pos, offsets)
-    }
-
-    fn get_queen_moves(&self, pos: (i8, i8)) -> Vec<(i8, i8)> {
-        let mut moves = self.get_bishop_moves(pos);
-        moves.extend(self.get_rook_moves(pos));
-        moves
-    }
-
-    fn get_king_moves(&self, pos: (i8, i8), side: &Color, check_castle: bool) -> Vec<(i8, i8)> {
-        let mut offsets: Vec<(i8, i8)> = vec![
-            (-1, -1),
-            (-1, 0),
-            (-1, 1),
-            (0, -1),
-            (0, 1),
-            (1, -1),
-            (1, 0),
-            (1, 1),
-        ];
-        if !self.has_moved(pos) && check_castle {
-            if !self.has_moved((pos.0 + 3, pos.1)) {
-                let positive_offsets = vec![(0, 0), (1, 0), (2, 0), (3, 0)];
-                let positive_offsets = Board::offset_within(pos, positive_offsets);
-                let safe: Vec<(i8, i8)> = positive_offsets
-                    .into_iter()
-                    .filter(|pos| !self.is_endangered(side, *pos))
-                    .collect();
-                if safe.len() == 4 {
-                    offsets.push((2, 0));
-                }
-            }
-
-            if !self.has_moved((pos.0 - 4, pos.1)) {
-                let negative_offsets = vec![(0, 0), (-1, 0), (-2, 0), (-3, 0), (-4, 0)];
-                let negative_offsets = Board::offset_within(pos, negative_offsets);
-                let safe: Vec<(i8, i8)> = negative_offsets
-                    .into_iter()
-                    .filter(|pos| !self.is_endangered(side, *pos))
-                    .collect();
-                if safe.len() == 5 {
-                    offsets.push((-2, 0));
-                }
-            }
-        }
-
-        Board::offset_within(pos, offsets)
-    }
-
-    fn get_moves(&self, pos: (i8, i8), check_castle: bool) -> Vec<(i8, i8)> {
-        let (x, y) = pos;
-        match &self.tiles[x as usize][y as usize] {
-            Piece::Pawn(color) => self.get_pawn_moves(pos, &color),
-            Piece::Knight(_) => self.get_knight_moves(pos),
-            Piece::Bishop(_) => self.get_bishop_moves(pos),
-            Piece::Rook(_) => self.get_rook_moves(pos),
-            Piece::Queen(_) => self.get_queen_moves(pos),
-            Piece::King(color) => self.get_king_moves(pos, &color, check_castle),
-            Piece::Empty => vec![],
-        }
-    }
-
-    fn is_valid_move(
-        &self,
-        start: (i8, i8),
-        end: (i8, i8),
-        side: Color,
-        check_castle: bool,
-        check_check: bool,
-    ) -> bool {
-        let (x, y) = (start.0 as usize, start.1 as usize);
-        let same_color = self.tiles[x][y].same_color(&side);
-        let other_color = self.tiles[end.0 as usize][end.1 as usize].other_color(&side);
-        let has_move = self.get_moves(start, check_castle).contains(&end);
-        let check = match check_check {
-            true => self.king_is_in_check_after_move(&side, start, end),
-            false => false,
-        };
-        if !(same_color && has_move && other_color) || check {
-            return false;
-        }
-        match self.tiles[x][y] {
-            Piece::Knight(_) => true,
-            _ => self.path_is_clear(start, end),
-        }
-    }
-
-    fn get_valid_moves(
-        &self,
-        start: (i8, i8),
-        side: Color,
-        check_castle: bool,
-        check_check: bool,
-    ) -> Vec<(i8, i8)> {
-        let moves = self.get_moves(start, check_castle);
-        moves
-            .into_iter()
-            .filter(|&m| self.is_valid_move(start, m, side, check_castle, check_check))
-            .collect()
-    }
-
-    fn has_valid_moves(&self, side: Color) -> bool {
-        for i in 0..8 {
-            for j in 0..8 {
-                if self
-                    .get_valid_moves((i as i8, j as i8), side, true, true)
-                    .len()
-                    > 0
-                {
+    fn has_legal_moves(&self, side: &Color) -> bool {
+        for row in 0..8 {
+            for col in 0..8 {
+                if self.get_legal_moves(side, &Coord { row, col }).len() > 0 {
                     return true;
                 }
             }
@@ -469,49 +406,80 @@ impl Board {
     }
 
     fn undo_move(&mut self) {
-        let old_history = self.history.clone();
-        self.reset_pieces();
-        self.history = vec![];
-        self.make_moves(&old_history[..old_history.len() - 1]);
+        let mut board = Board::new();
+        board.make_moves(&self.history[..self.history.len() - 1]);
+        self.tiles = board.tiles;
+        self.history = board.history;
     }
 
-    fn make_move(&mut self, start: (i8, i8), end: (i8, i8)) {
-        let (start_x, start_y) = (start.0 as usize, start.1 as usize);
-        let (end_x, end_y) = (end.0 as usize, end.1 as usize);
-        if let Piece::Pawn(color) = self.tiles[start_x][start_y] {
-            if self.en_passant(end, &color) {
-                self.tiles[end_x][start_y] = Piece::Empty;
+    fn make_move(&mut self, start: &Coord, end: &Coord) {
+        if let Some(mut piece) = self.get(start) {
+            match piece.kind {
+                PieceKind::Pawn => {
+                    if self.is_en_passant(&piece, start, end) {
+                        self.set(
+                            &Coord {
+                                row: start.row,
+                                col: end.col,
+                            },
+                            None,
+                        );
+                    }
+                    if end.row == 7 || end.row == 0 {
+                        self.set(end, Some(Piece::new(PieceKind::Queen, piece.color, true)));
+                    }
+                }
+                PieceKind::King => {
+                    if end.col - start.col > 1 {
+                        self.set(
+                            &Coord {
+                                row: start.row,
+                                col: end.col - 1,
+                            },
+                            Some(Piece::new(PieceKind::Rook, piece.color, true)),
+                        );
+                        self.set(
+                            &Coord {
+                                row: start.row,
+                                col: start.col + 3,
+                            },
+                            None,
+                        );
+                    } else if end.col - start.col < -1 {
+                        self.set(
+                            &Coord {
+                                row: start.row,
+                                col: end.col + 1,
+                            },
+                            Some(Piece::new(PieceKind::Rook, piece.color, true)),
+                        );
+                        self.set(
+                            &Coord {
+                                row: start.row,
+                                col: start.col - 4,
+                            },
+                            None,
+                        );
+                    }
+                }
+                _ => {}
             }
-            if end_y == 7 || end_y == 0 {
-                self.tiles[end_x][end_y] = Piece::Queen(color);
-            }
+
+            piece.has_moved = true;
+            self.set(end, Some(piece));
+            self.set(start, None);
+
+            self.history.push((start.clone(), end.clone()))
         }
-        if let Piece::King(color) = self.tiles[start_x][start_y] {
-            if end.0 - start.0 > 1 {
-                self.tiles[end_x - 1][start_y] = Piece::Rook(color);
-                self.tiles[start_x + 3][start_y] = Piece::Empty;
-            } else if end.0 - start.0 < -1 {
-                self.tiles[end_x + 1][start_y] = Piece::Rook(color);
-                self.tiles[start_x - 4][start_y] = Piece::Empty;
-            }
-        }
-        self.tiles[end_x][end_y] = self.tiles[start_x][start_y];
-        if let Piece::Pawn(color) = self.tiles[start_x][start_y] {
-            if end_y == 7 || end_y == 0 {
-                self.tiles[end_x][end_y] = Piece::Queen(color);
-            }
-        }
-        self.tiles[start_x][start_y] = Piece::Empty;
-        self.history.push((start, end))
     }
 
-    fn make_moves(&mut self, moves: &[((i8, i8), (i8, i8))]) {
-        for m in moves {
-            self.make_move(m.0, m.1);
+    fn make_moves(&mut self, moves: &[(Coord, Coord)]) {
+        for (start, end) in moves {
+            self.make_move(start, end);
         }
     }
 
-    fn parse_move_string(move_string: &str) -> Option<((i8, i8), (i8, i8))> {
+    fn parse_move_string(move_string: &str) -> Option<(Coord, Coord)> {
         let split: Vec<&str> = move_string.trim().split_whitespace().collect();
         if split.len() != 2 {
             return None;
@@ -521,25 +489,34 @@ impl Board {
         if bytes.len() != 2 {
             return None;
         }
-        let start_x = (bytes[0] as u8) - ('a' as u8);
-        let start_y = 8 - ((bytes[1] as u8) - ('0' as u8));
+        let start_col = (bytes[0] as u8) - ('a' as u8);
+        let start_row = ((bytes[1] as u8) - ('0' as u8)) - 1;
 
         let bytes = split[1].as_bytes();
         if bytes.len() != 2 {
             return None;
         }
-        let end_x = (bytes[0] as u8) - ('a' as u8);
-        let end_y = 8 - ((bytes[1] as u8) - ('0' as u8));
+        let end_col = (bytes[0] as u8) - ('a' as u8);
+        let end_row = ((bytes[1] as u8) - ('0' as u8)) - 1;
 
-        if start_x >= 8 || start_y >= 8 || end_x >= 8 || end_y >= 8 {
+        if start_col >= 8 || start_row >= 8 || end_col >= 8 || end_row >= 8 {
             return None;
         }
 
-        Some(((start_x as i8, start_y as i8), (end_x as i8, end_y as i8)))
+        Some((
+            Coord {
+                row: start_row as i8,
+                col: start_col as i8,
+            },
+            Coord {
+                row: end_row as i8,
+                col: end_col as i8,
+            },
+        ))
     }
 
     fn play(&mut self) {
-        let mut side = Color::Light;
+        let mut side = Color::White;
         loop {
             self.print(side);
             println!("Enter a move:");
@@ -553,17 +530,16 @@ impl Board {
             let option_move = Board::parse_move_string(&move_string);
 
             if let Some((start, end)) = option_move {
-                if self.is_valid_move(start, end, side, true, true) {
-                    self.make_move(start, end);
-
+                if self.is_legal_move(&side, &start, &end) {
+                    self.make_move(&start, &end);
                     side = side.other();
                 }
             }
 
-            if !self.has_valid_moves(side) {
+            if !self.has_legal_moves(&side) {
                 self.print(side);
                 if self.king_is_in_check(&side) {
-                    println!("Checkmate! {:?} wins!", side);
+                    println!("Checkmate! {:?} wins!", side.other());
                     break;
                 } else {
                     println!("Stalemate!");
