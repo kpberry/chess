@@ -307,7 +307,6 @@ impl Board {
 
             let side = piece.color;
             !self.is_endangered(&side, start)
-                && !self.is_endangered(&side, &rook_pos)
                 && !self
                     .path_between(start, end)
                     .iter()
